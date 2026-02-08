@@ -1,103 +1,713 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0b0f14" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Proof Sets Buy" />
-  <meta name="format-detection" content="telephone=no" />
+/* Proof Sets Buy Sheet PWA - v3 (major only)
+   - Offer pricing uses your baseline sheet (spot 78, baseline discount 35%)
+   - Melt value shown clearly for each bucket (each + subtotal) using silver ozt per set
+   - Behind-the-scenes resale check per bucket + grand totals (hidden by default)
+   - Save quotes (localStorage) + load/copy/delete
 
-  <link rel="manifest" href="manifest.json">
-  <link rel="apple-touch-icon" href="icons/icon-192.png">
+   Silver content assumptions (per your instructions):
+   - Treat 90% as "junk equivalent" (we converted coin mixes to ozt using the standard junk assumptions)
+   - 40% Kennedy half: 0.1479 ozt
+   - 40% Ike dollar: 0.3161 ozt
+   - 1976 3-coin silver set: Ike 0.3161 + Half 0.1479 + Quarter 0.0739 = 0.5379 ozt
+*/
 
-  <link rel="stylesheet" href="styles.css" />
-  <title>Proof Sets Buy Sheet</title>
-</head>
+const APP_VERSION = "3";
 
-<body>
-  <header class="topbar">
-    <div class="title-wrap">
-      <div class="title">Proof Sets Buy Sheet</div>
-      <div class="subtitle">Spot-based offer calculator (offline PWA)</div>
-    </div>
-    <div class="version" id="versionLabel">v3</div>
-  </header>
+// Baseline assumptions (internal only; not displayed)
+const baselineSpot = 78;
+const baselineDiscount = 0.35;
 
-  <main class="container">
-    <section class="card">
-      <div class="row two">
-        <label class="field">
-          <span>Silver spot ($/oz)</span>
-          <input id="spotInput" type="number" inputmode="decimal" step="0.01" min="0" />
-        </label>
+const BUYERS = [
+  { id: "lcs",       label: "LCS",        defaultPremiumPct: 10 },
+  { id: "wholesale", label: "Wholesaler", defaultPremiumPct: 6  },
+  { id: "refiner",   label: "Refiner",    defaultPremiumPct: 3  },
+  { id: "ebay",      label: "eBay",       defaultPremiumPct: 18 }
+];
 
-        <div class="field">
-          <span>Buy discount</span>
-          <div class="slider-row">
-            <input id="discountSlider" class="range" type="range" min="0" max="50" step="0.5" />
-            <div class="pill"><span id="discountLabel">35.0%</span></div>
-          </div>
-        </div>
-      </div>
+const premiumMin = -10;
+const premiumMax = 30;
+const premiumStep = 0.5;
 
-      <div class="row three">
-        <button id="resetBtn" class="btn secondary" type="button">Reset</button>
-        <button id="saveBtn" class="btn primary" type="button">Save Quote</button>
-        <button id="clearSavedBtn" class="btn danger" type="button">Clear Saved</button>
-      </div>
+// Buckets + buy prices at baseline spot 78 and baseline discount 35%.
+// silverOzPerSet is now fully populated.
+const BUCKETS = [
+  { id: "ps_1950_1964", label: "1950–1964 proof sets", buyAtBaseline: 31.00, silverOzPerSet: 0.6078 },
+  { id: "ms_1956_1964", label: "1956–1964 mint sets",  buyAtBaseline: 62.00, silverOzPerSet: 1.2155 },
+  { id: "sets_1965_1970", label: "1965–1970 sets",     buyAtBaseline: 6.00,  silverOzPerSet: 0.1479 }, // 1x 40% half
+  { id: "ike_1971_1974", label: "1971–1974 Ike sets",  buyAtBaseline: 12.00, silverOzPerSet: 0.3161 }, // 1x 40% Ike dollar
+  { id: "set_1976",      label: "1976 3-coin silver proof set", buyAtBaseline: 24.00, silverOzPerSet: 0.5379 },
+  { id: "ps_1992_1998",  label: "1992–1998 proof sets", buyAtBaseline: 28.00, silverOzPerSet: 0.6078 },
+  { id: "ps_1999_2008",  label: "1999–2008 proof sets", buyAtBaseline: 65.00, silverOzPerSet: 1.3228 },
+  { id: "ps_2009",       label: "2009 proof set",       buyAtBaseline: 76.00, silverOzPerSet: 1.5015 },
+  { id: "ps_2010_2020",  label: "2010–2020 proof sets", buyAtBaseline: 68.00, silverOzPerSet: 1.3228 }
+];
 
-      <div class="row">
-        <label class="field">
-          <span>Quote note (optional)</span>
-          <input id="noteInput" type="text" placeholder="Customer name, shop, quick note…" maxlength="80" />
-        </label>
-      </div>
-    </section>
+const KEY_STATE = "proofSetsBuySheet_state_v3_melt_final";
+const KEY_SAVED = "proofSetsBuySheet_savedQuotes_v1";
 
-    <section class="card">
-      <div class="card-title">Buy buckets</div>
-      <div id="buckets"></div>
+function money(n){
+  const v = Number.isFinite(n) ? n : 0;
+  return v.toLocaleString(undefined, { style:"currency", currency:"USD" });
+}
+function clamp(n, min, max){ return Math.min(max, Math.max(min, n)); }
+function nowStamp(){ return new Date().toLocaleString(); }
 
-      <div class="totals">
-        <div class="tot-row">
-          <div class="tot-label">Grand total offer</div>
-          <div class="tot-value" id="grandTotal">$0.00</div>
-        </div>
+function getSaved(){
+  const raw = localStorage.getItem(KEY_SAVED);
+  if(!raw) return [];
+  try { return JSON.parse(raw) || []; } catch { return []; }
+}
+function setSaved(list){
+  localStorage.setItem(KEY_SAVED, JSON.stringify(list));
+}
 
-        <!-- Hidden-by-default behind-the-scenes totals -->
-        <div class="behind-wrap">
-          <button id="grandBehindToggle" class="behind-toggle" type="button">Behind scenes ▸</button>
+function getState(){
+  const raw = localStorage.getItem(KEY_STATE);
+  if(raw){
+    try { return JSON.parse(raw); } catch {}
+  }
 
-          <div id="grandBehindPanel" class="behind-panel hidden">
-            <div class="behind-grid">
-              <div class="kv">
-                <div class="k">Total expected sell</div>
-                <div class="v" id="grandExpectedSell">$0.00</div>
-              </div>
-              <div class="kv">
-                <div class="k">Total profit (sell − offer)</div>
-                <div class="v" id="grandProfit">$0.00</div>
-              </div>
-            </div>
-          </div>
-        </div>
+  const qty = {};
+  const resale = {};
+  const silverOz = {};
 
-      </div>
-    </section>
+  BUCKETS.forEach(b => {
+    qty[b.id] = 0;
+    resale[b.id] = { show:false, buyerId:"lcs", premiumPct: 10 };
+    silverOz[b.id] = b.silverOzPerSet; // prefilled defaults
+  });
 
-    <section class="card">
-      <div class="card-title">Saved quotes</div>
-      <div id="savedList" class="saved-list"></div>
-      <div class="smallprint">Saved locally on this device (localStorage). No cloud sync.</div>
-    </section>
-  </main>
+  return {
+    spot: baselineSpot,
+    discountPct: 35,
+    note: "",
+    qty,
+    resale,
+    silverOz,
+    grandResaleShow: false
+  };
+}
 
-  <footer class="footer">
-    <div>PM Services • Proof Sets</div>
-  </footer>
+function setState(state){
+  localStorage.setItem(KEY_STATE, JSON.stringify(state));
+}
 
-  <script src="app.js"></script>
-</body>
-</html>
+function fullValueAtBaseline(buyAtBaseline){
+  return buyAtBaseline / (1 - baselineDiscount);
+}
+
+function offerEach(bucket, spot, discountPct){
+  const d = clamp(discountPct, 0, 50) / 100;
+  const fv = fullValueAtBaseline(bucket.buyAtBaseline);
+  return fv * (spot / baselineSpot) * (1 - d);
+}
+
+function meltEach(bucketId, spot, state){
+  const oz = state.silverOz[bucketId];
+  if(!Number.isFinite(oz) || oz <= 0) return null;
+  return oz * spot;
+}
+
+function expectedSellEachFromOffer(offer, premiumPct){
+  const p = clamp(premiumPct, premiumMin, premiumMax) / 100;
+  return offer * (1 + p);
+}
+
+function buyerDefaultPremium(buyerId){
+  const b = BUYERS.find(x => x.id === buyerId);
+  return b ? b.defaultPremiumPct : 10;
+}
+
+function buildBucketsUI(state){
+  const root = document.getElementById("buckets");
+  root.innerHTML = "";
+
+  BUCKETS.forEach(bucket => {
+    const wrap = document.createElement("div");
+    wrap.className = "bucket";
+
+    // Top row
+    const top = document.createElement("div");
+    top.className = "bucket-top";
+
+    const left = document.createElement("div");
+    const name = document.createElement("div");
+    name.className = "bucket-name";
+    name.textContent = bucket.label;
+    left.appendChild(name);
+
+    const right = document.createElement("div");
+    right.className = "bucket-right";
+
+    // Offer
+    const pline = document.createElement("div");
+    pline.className = "price-line";
+    pline.textContent = "Offer each";
+
+    const pbig = document.createElement("div");
+    pbig.className = "price-big";
+    pbig.id = `offer_${bucket.id}`;
+    pbig.textContent = money(offerEach(bucket, state.spot, state.discountPct));
+
+    // Melt
+    const mwrap = document.createElement("div");
+    mwrap.className = "melt-line";
+
+    const mline = document.createElement("div");
+    mline.className = "price-line";
+    mline.textContent = "Melt each";
+
+    const mval = document.createElement("div");
+    mval.className = "melt-value";
+    mval.id = `meltEach_${bucket.id}`;
+    mval.textContent = "—";
+
+    const mbadge = document.createElement("div");
+    mbadge.className = "badge";
+    mbadge.id = `meltBadge_${bucket.id}`;
+
+    mwrap.appendChild(mline);
+    mwrap.appendChild(mval);
+    mwrap.appendChild(mbadge);
+
+    right.appendChild(pline);
+    right.appendChild(pbig);
+    right.appendChild(mwrap);
+
+    top.appendChild(left);
+    top.appendChild(right);
+
+    // Controls row
+    const controls = document.createElement("div");
+    controls.className = "bucket-controls";
+
+    const qtyInput = document.createElement("input");
+    qtyInput.className = "qty";
+    qtyInput.type = "number";
+    qtyInput.min = "0";
+    qtyInput.step = "1";
+    qtyInput.inputMode = "numeric";
+    qtyInput.value = String(state.qty[bucket.id] ?? 0);
+
+    qtyInput.addEventListener("input", () => {
+      const n = clamp(parseInt(qtyInput.value || "0", 10) || 0, 0, 999999);
+      state.qty[bucket.id] = n;
+      setState(state);
+      recalc(state);
+    });
+
+    const subtotal = document.createElement("div");
+    subtotal.className = "subtotal";
+    subtotal.id = `sub_${bucket.id}`;
+
+    controls.appendChild(qtyInput);
+    controls.appendChild(subtotal);
+
+    // Behind scenes
+    const behindWrap = document.createElement("div");
+    behindWrap.className = "behind-wrap";
+
+    const toggle = document.createElement("button");
+    toggle.className = "behind-toggle";
+    toggle.type = "button";
+    toggle.id = `bt_${bucket.id}`;
+    toggle.textContent = "Behind scenes ▸";
+
+    const panel = document.createElement("div");
+    panel.className = "behind-panel hidden";
+    panel.id = `bp_${bucket.id}`;
+
+    const grid = document.createElement("div");
+    grid.className = "behind-grid";
+
+    // Silver oz per set (still editable, but prefilled)
+    const ozField = document.createElement("label");
+    ozField.className = "field";
+    const ozSpan = document.createElement("span");
+    ozSpan.textContent = "Silver oz per set (troy)";
+    const ozInput = document.createElement("input");
+    ozInput.type = "number";
+    ozInput.step = "0.0001";
+    ozInput.min = "0";
+    ozInput.inputMode = "decimal";
+    ozInput.id = `oz_${bucket.id}`;
+    ozInput.value = (Number.isFinite(state.silverOz[bucket.id]) ? String(state.silverOz[bucket.id]) : "");
+
+    ozInput.addEventListener("input", () => {
+      const v = parseFloat(ozInput.value);
+      state.silverOz[bucket.id] = Number.isFinite(v) ? v : null;
+      setState(state);
+      recalc(state);
+    });
+
+    ozField.appendChild(ozSpan);
+    ozField.appendChild(ozInput);
+
+    // Buyer dropdown
+    const buyerField = document.createElement("label");
+    buyerField.className = "field";
+    const buyerSpan = document.createElement("span");
+    buyerSpan.textContent = "Buyer";
+    const buyerSelect = document.createElement("select");
+    buyerSelect.id = `buyer_${bucket.id}`;
+    BUYERS.forEach(b => {
+      const opt = document.createElement("option");
+      opt.value = b.id;
+      opt.textContent = b.label;
+      buyerSelect.appendChild(opt);
+    });
+    buyerField.appendChild(buyerSpan);
+    buyerField.appendChild(buyerSelect);
+
+    // Premium slider
+    const premField = document.createElement("label");
+    premField.className = "field";
+    const premSpan = document.createElement("span");
+    premSpan.textContent = "Premium over your offer";
+    const premRow = document.createElement("div");
+    premRow.className = "slider-row";
+
+    const premSlider = document.createElement("input");
+    premSlider.className = "range";
+    premSlider.type = "range";
+    premSlider.min = String(premiumMin);
+    premSlider.max = String(premiumMax);
+    premSlider.step = String(premiumStep);
+    premSlider.id = `prem_${bucket.id}`;
+
+    const premPill = document.createElement("div");
+    premPill.className = "pill";
+    const premPillText = document.createElement("span");
+    premPillText.id = `premLabel_${bucket.id}`;
+    premPill.appendChild(premPillText);
+
+    premRow.appendChild(premSlider);
+    premRow.appendChild(premPill);
+
+    premField.appendChild(premSpan);
+    premField.appendChild(premRow);
+
+    // KPI boxes
+    const kvSellEach = document.createElement("div");
+    kvSellEach.className = "kv";
+    kvSellEach.innerHTML = `<div class="k">Expected sell each</div><div class="v" id="sellEach_${bucket.id}">$0.00</div>`;
+
+    const kvProfitEach = document.createElement("div");
+    kvProfitEach.className = "kv";
+    kvProfitEach.innerHTML = `<div class="k">Profit each</div><div class="v" id="profitEach_${bucket.id}">$0.00</div>`;
+
+    const kvSellSub = document.createElement("div");
+    kvSellSub.className = "kv";
+    kvSellSub.innerHTML = `<div class="k">Expected sell subtotal (qty)</div><div class="v" id="sellSub_${bucket.id}">$0.00</div>`;
+
+    const kvProfitSub = document.createElement("div");
+    kvProfitSub.className = "kv";
+    kvProfitSub.innerHTML = `<div class="k">Profit subtotal (qty)</div><div class="v" id="profitSub_${bucket.id}">$0.00</div>`;
+
+    const kvMeltSub = document.createElement("div");
+    kvMeltSub.className = "kv";
+    kvMeltSub.innerHTML = `<div class="k">Melt subtotal (qty)</div><div class="v" id="meltSub_${bucket.id}">$0.00</div>`;
+
+    grid.appendChild(ozField);
+    grid.appendChild(buyerField);
+    grid.appendChild(premField);
+    grid.appendChild(kvSellEach);
+    grid.appendChild(kvProfitEach);
+    grid.appendChild(kvSellSub);
+    grid.appendChild(kvProfitSub);
+    grid.appendChild(kvMeltSub);
+
+    panel.appendChild(grid);
+
+    // restore resale state
+    const rs = state.resale[bucket.id] || { show:false, buyerId:"lcs", premiumPct:10 };
+    buyerSelect.value = rs.buyerId ?? "lcs";
+    premSlider.value = String(Number.isFinite(rs.premiumPct) ? rs.premiumPct : buyerDefaultPremium(buyerSelect.value));
+    premPillText.textContent = `${Number(premSlider.value).toFixed(1)}%`;
+
+    if(rs.show){
+      panel.classList.remove("hidden");
+      toggle.classList.add("on");
+      toggle.textContent = "Behind scenes ▾";
+    }
+
+    toggle.addEventListener("click", () => {
+      const open = panel.classList.contains("hidden");
+      if(open){
+        panel.classList.remove("hidden");
+        toggle.classList.add("on");
+        toggle.textContent = "Behind scenes ▾";
+        state.resale[bucket.id].show = true;
+      }else{
+        panel.classList.add("hidden");
+        toggle.classList.remove("on");
+        toggle.textContent = "Behind scenes ▸";
+        state.resale[bucket.id].show = false;
+      }
+      setState(state);
+    });
+
+    buyerSelect.addEventListener("change", () => {
+      const id = buyerSelect.value;
+      state.resale[bucket.id].buyerId = id;
+
+      const def = buyerDefaultPremium(id);
+      premSlider.value = String(def);
+      premPillText.textContent = `${def.toFixed(1)}%`;
+      state.resale[bucket.id].premiumPct = def;
+
+      setState(state);
+      recalc(state);
+    });
+
+    premSlider.addEventListener("input", () => {
+      const v = parseFloat(premSlider.value);
+      const pct = Number.isFinite(v) ? v : 0;
+      premPillText.textContent = `${pct.toFixed(1)}%`;
+      state.resale[bucket.id].premiumPct = pct;
+      setState(state);
+      recalc(state);
+    });
+
+    behindWrap.appendChild(toggle);
+    behindWrap.appendChild(panel);
+
+    wrap.appendChild(top);
+    wrap.appendChild(controls);
+    wrap.appendChild(behindWrap);
+
+    root.appendChild(wrap);
+  });
+}
+
+function recalc(state){
+  let offerTotal = 0;
+  let meltTotal = 0;
+  let expectedSellTotal = 0;
+  let profitTotal = 0;
+
+  BUCKETS.forEach(bucket => {
+    const eachOffer = offerEach(bucket, state.spot, state.discountPct);
+    const qty = state.qty[bucket.id] || 0;
+    const subOffer = eachOffer * qty;
+    offerTotal += subOffer;
+
+    // Offer UI
+    const offerEl = document.getElementById(`offer_${bucket.id}`);
+    const subEl = document.getElementById(`sub_${bucket.id}`);
+    if(offerEl) offerEl.textContent = money(eachOffer);
+    if(subEl) subEl.textContent = money(subOffer);
+
+    // Melt UI
+    const me = meltEach(bucket.id, state.spot, state);
+    const meltEl = document.getElementById(`meltEach_${bucket.id}`);
+    const badgeEl = document.getElementById(`meltBadge_${bucket.id}`);
+    const meltSubEl = document.getElementById(`meltSub_${bucket.id}`);
+
+    if(me === null){
+      if(meltEl) meltEl.textContent = "—";
+      if(badgeEl){
+        badgeEl.style.display = "inline-block";
+        badgeEl.classList.add("warn");
+        badgeEl.textContent = "Melt: N/A (set oz)";
+      }
+      if(meltSubEl) meltSubEl.textContent = money(0);
+    }else{
+      if(meltEl) meltEl.textContent = money(me);
+      if(badgeEl){
+        badgeEl.style.display = "inline-block";
+        badgeEl.classList.remove("warn");
+        badgeEl.textContent = `${Number(state.silverOz[bucket.id]).toFixed(4)} oz/set`;
+      }
+      const subMelt = me * qty;
+      meltTotal += subMelt;
+      if(meltSubEl) meltSubEl.textContent = money(subMelt);
+    }
+
+    // Behind scenes sell/profit
+    const rs = state.resale[bucket.id] || { buyerId:"lcs", premiumPct:10 };
+    const prem = Number.isFinite(rs.premiumPct) ? rs.premiumPct : buyerDefaultPremium(rs.buyerId || "lcs");
+    const eachSell = expectedSellEachFromOffer(eachOffer, prem);
+    const eachProfit = eachSell - eachOffer;
+
+    const sellSub = eachSell * qty;
+    const profitSub = eachProfit * qty;
+
+    expectedSellTotal += sellSub;
+    profitTotal += profitSub;
+
+    const sellEachEl = document.getElementById(`sellEach_${bucket.id}`);
+    const profitEachEl = document.getElementById(`profitEach_${bucket.id}`);
+    const sellSubEl = document.getElementById(`sellSub_${bucket.id}`);
+    const profitSubEl = document.getElementById(`profitSub_${bucket.id}`);
+
+    if(sellEachEl) sellEachEl.textContent = money(eachSell);
+    if(profitEachEl) profitEachEl.textContent = money(eachProfit);
+    if(sellSubEl) sellSubEl.textContent = money(sellSub);
+    if(profitSubEl) profitSubEl.textContent = money(profitSub);
+
+    const premLabel = document.getElementById(`premLabel_${bucket.id}`);
+    if(premLabel) premLabel.textContent = `${Number(prem).toFixed(1)}%`;
+  });
+
+  document.getElementById("grandTotal").textContent = money(offerTotal);
+
+  const grandMelt = document.getElementById("grandMelt");
+  if(grandMelt) grandMelt.textContent = money(meltTotal);
+
+  document.getElementById("grandExpectedSell").textContent = money(expectedSellTotal);
+  document.getElementById("grandProfit").textContent = money(profitTotal);
+}
+
+function renderSaved(){
+  const list = getSaved();
+  const root = document.getElementById("savedList");
+  root.innerHTML = "";
+
+  if(list.length === 0){
+    const empty = document.createElement("div");
+    empty.className = "smallprint";
+    empty.textContent = "No saved quotes yet.";
+    root.appendChild(empty);
+    return;
+  }
+
+  list.forEach((q, idx) => {
+    const card = document.createElement("div");
+    card.className = "saved";
+
+    const head = document.createElement("div");
+    head.className = "saved-head";
+
+    const left = document.createElement("div");
+    const title = document.createElement("div");
+    title.className = "saved-title";
+    title.textContent = `${money(q.grandTotal)} • Spot $${Number(q.spot).toFixed(2)} • Disc ${Number(q.discountPct).toFixed(1)}%`;
+
+    const sub = document.createElement("div");
+    sub.className = "saved-sub";
+    sub.textContent = `${q.timestamp}${q.note ? " • " + q.note : ""}`;
+
+    left.appendChild(title);
+    left.appendChild(sub);
+
+    const actions = document.createElement("div");
+    actions.className = "saved-actions";
+
+    const loadBtn = document.createElement("button");
+    loadBtn.className = "iconbtn";
+    loadBtn.type = "button";
+    loadBtn.textContent = "Load";
+    loadBtn.addEventListener("click", () => {
+      const state = getState();
+      state.spot = q.spot;
+      state.discountPct = q.discountPct;
+      state.note = q.note || "";
+      state.qty = { ...state.qty, ...(q.qty || {}) };
+      if(q.resale) state.resale = { ...state.resale, ...q.resale };
+      if(q.silverOz) state.silverOz = { ...state.silverOz, ...q.silverOz };
+      if(typeof q.grandResaleShow === "boolean") state.grandResaleShow = q.grandResaleShow;
+
+      setState(state);
+      hydrateUI(state);
+    });
+
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "iconbtn";
+    copyBtn.type = "button";
+    copyBtn.textContent = "Copy";
+    copyBtn.addEventListener("click", async () => {
+      const lines = [];
+      lines.push(`Proof Sets Quote (${q.timestamp})`);
+      if(q.note) lines.push(`Note: ${q.note}`);
+      lines.push(`Spot: $${Number(q.spot).toFixed(2)} | Discount: ${Number(q.discountPct).toFixed(1)}%`);
+      lines.push("");
+
+      let offerTotal = 0;
+      let meltTotal = 0;
+
+      BUCKETS.forEach(b => {
+        const qty = (q.qty && q.qty[b.id]) ? q.qty[b.id] : 0;
+        if(qty > 0){
+          const eachOffer = offerEach(b, q.spot, q.discountPct);
+          const subOffer = eachOffer * qty;
+          offerTotal += subOffer;
+
+          const oz = (q.silverOz && Number.isFinite(q.silverOz[b.id])) ? q.silverOz[b.id] : null;
+          const eachMelt = (oz && oz > 0) ? (oz * q.spot) : null;
+          const subMelt = (eachMelt !== null) ? (eachMelt * qty) : 0;
+          meltTotal += subMelt;
+
+          const meltStr = (eachMelt !== null) ? `${money(eachMelt)} melt` : `melt N/A`;
+          lines.push(`${b.label}: qty ${qty} × ${money(eachOffer)} = ${money(subOffer)} | ${meltStr}`);
+        }
+      });
+
+      lines.push("");
+      lines.push(`Grand Offer: ${money(offerTotal)}`);
+      lines.push(`Grand Melt: ${money(meltTotal)}`);
+
+      const text = lines.join("\n");
+      try{
+        await navigator.clipboard.writeText(text);
+        copyBtn.textContent = "Copied";
+        setTimeout(()=>copyBtn.textContent="Copy", 900);
+      }catch{
+        alert("Copy failed (clipboard blocked).");
+      }
+    });
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "iconbtn";
+    delBtn.type = "button";
+    delBtn.textContent = "Delete";
+    delBtn.addEventListener("click", () => {
+      const cur = getSaved();
+      cur.splice(idx, 1);
+      setSaved(cur);
+      renderSaved();
+    });
+
+    actions.appendChild(loadBtn);
+    actions.appendChild(copyBtn);
+    actions.appendChild(delBtn);
+
+    head.appendChild(left);
+    head.appendChild(actions);
+
+    card.appendChild(head);
+    root.appendChild(card);
+  });
+}
+
+function hydrateGrandBehindUI(state){
+  const t = document.getElementById("grandBehindToggle");
+  const p = document.getElementById("grandBehindPanel");
+  if(!t || !p) return;
+
+  const apply = () => {
+    if(state.grandResaleShow){
+      p.classList.remove("hidden");
+      t.classList.add("on");
+      t.textContent = "Behind scenes ▾";
+    }else{
+      p.classList.add("hidden");
+      t.classList.remove("on");
+      t.textContent = "Behind scenes ▸";
+    }
+  };
+
+  apply();
+
+  t.onclick = () => {
+    state.grandResaleShow = !state.grandResaleShow;
+    setState(state);
+    apply();
+  };
+}
+
+function hydrateUI(state){
+  document.getElementById("versionLabel").textContent = `v${APP_VERSION}`;
+
+  const spotInput = document.getElementById("spotInput");
+  const discountSlider = document.getElementById("discountSlider");
+  const discountLabel = document.getElementById("discountLabel");
+  const noteInput = document.getElementById("noteInput");
+
+  spotInput.value = String(state.spot ?? baselineSpot);
+  discountSlider.value = String(state.discountPct ?? 35);
+  discountLabel.textContent = `${Number(state.discountPct ?? 35).toFixed(1)}%`;
+  noteInput.value = state.note || "";
+
+  buildBucketsUI(state);
+  hydrateGrandBehindUI(state);
+  recalc(state);
+  renderSaved();
+
+  spotInput.oninput = () => {
+    const v = parseFloat(spotInput.value);
+    state.spot = Number.isFinite(v) ? v : baselineSpot;
+    setState(state);
+    recalc(state);
+  };
+
+  discountSlider.oninput = () => {
+    const v = parseFloat(discountSlider.value);
+    state.discountPct = Number.isFinite(v) ? v : 35;
+    discountLabel.textContent = `${Number(state.discountPct).toFixed(1)}%`;
+    setState(state);
+    recalc(state);
+  };
+
+  noteInput.oninput = () => {
+    state.note = noteInput.value || "";
+    setState(state);
+  };
+
+  document.getElementById("resetBtn").onclick = () => {
+    const fresh = getState();
+    fresh.spot = baselineSpot;
+    fresh.discountPct = 35;
+    fresh.note = "";
+    Object.keys(fresh.qty).forEach(k => fresh.qty[k] = 0);
+
+    // Reset resale view states
+    BUCKETS.forEach(b => {
+      fresh.resale[b.id] = { show:false, buyerId:"lcs", premiumPct: buyerDefaultPremium("lcs") };
+      // Keep silverOz defaults from BUCKETS
+      fresh.silverOz[b.id] = b.silverOzPerSet;
+    });
+
+    fresh.grandResaleShow = false;
+
+    setState(fresh);
+    hydrateUI(fresh);
+  };
+
+  document.getElementById("saveBtn").onclick = () => {
+    const q = {
+      timestamp: nowStamp(),
+      spot: Number(state.spot ?? baselineSpot),
+      discountPct: Number(state.discountPct ?? 35),
+      note: (state.note || "").trim(),
+      qty: { ...state.qty },
+      resale: { ...state.resale },
+      silverOz: { ...state.silverOz },
+      grandResaleShow: !!state.grandResaleShow
+    };
+
+    let offerTotal = 0;
+    BUCKETS.forEach(b => {
+      const each = offerEach(b, q.spot, q.discountPct);
+      const qty = q.qty[b.id] || 0;
+      offerTotal += each * qty;
+    });
+    q.grandTotal = offerTotal;
+
+    const list = getSaved();
+    list.unshift(q);
+    setSaved(list);
+    renderSaved();
+  };
+
+  document.getElementById("clearSavedBtn").onclick = () => {
+    if(confirm("Clear ALL saved quotes on this device?")){
+      setSaved([]);
+      renderSaved();
+    }
+  };
+}
+
+function registerSW(){
+  if("serviceWorker" in navigator){
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("./service-worker.js").catch(()=>{});
+    });
+  }
+}
+
+(function init(){
+  const state = getState();
+  hydrateUI(state);
+  registerSW();
+})();
