@@ -316,7 +316,7 @@ function buildBucketsUI(state){
     const rs = state.resale[bucket.id] || { show:false, buyerId:"lcs", premiumPct:10 };
     buyerSelect.value = rs.buyerId ?? "lcs";
     premSlider.value = String(Number.isFinite(rs.premiumPct) ? rs.premiumPct : buyerDefaultPremium(buyerSelect.value));
-    premPillText.textContent = `${Number(premSlider.value).toFixed(1)}%`;
+    premPillText.textContent = `${Number(premSlider.value).toFixed(2)}%`;
 
     if(rs.show){
       panel.classList.remove("hidden");
@@ -346,7 +346,7 @@ function buildBucketsUI(state){
 
       const def = buyerDefaultPremium(id);
       premSlider.value = String(def);
-      premPillText.textContent = `${def.toFixed(1)}%`;
+      premPillText.textContent = `${def.toFixed(2)}%`;
       state.resale[bucket.id].premiumPct = def;
 
       setState(state);
@@ -356,7 +356,7 @@ function buildBucketsUI(state){
     premSlider.addEventListener("input", () => {
       const v = parseFloat(premSlider.value);
       const pct = Number.isFinite(v) ? v : 0;
-      premPillText.textContent = `${pct.toFixed(1)}%`;
+      premPillText.textContent = `${pct.toFixed(2)}%`;
       state.resale[bucket.id].premiumPct = pct;
       setState(state);
       recalc(state);
@@ -437,7 +437,7 @@ function recalc(state){
     if(profitSubEl) profitSubEl.textContent = money(profitSub);
 
     const premLabel = document.getElementById(`premLabel_${bucket.id}`);
-    if(premLabel) premLabel.textContent = `${Number(prem).toFixed(1)}%`;
+    if(premLabel) premLabel.textContent = `${Number(prem).toFixed(2)}%`;
   });
 
   document.getElementById("grandTotal").textContent = money(offerTotal);
@@ -469,7 +469,7 @@ function renderSaved(){
     const left = document.createElement("div");
     const title = document.createElement("div");
     title.className = "saved-title";
-    title.textContent = `${money(q.grandTotal)} • Spot $${Number(q.spot).toFixed(2)} • Disc ${Number(q.discountPct).toFixed(1)}%`;
+    title.textContent = `${money(q.grandTotal)} • Spot $${Number(q.spot).toFixed(2)} • Disc ${Number(q.discountPct).toFixed(2)}%`;
 
     const sub = document.createElement("div");
     sub.className = "saved-sub";
@@ -507,7 +507,7 @@ function renderSaved(){
       const lines = [];
       lines.push(`Proof Sets Quote (${q.timestamp})`);
       if(q.note) lines.push(`Note: ${q.note}`);
-      lines.push(`Spot: $${Number(q.spot).toFixed(2)} | Discount: ${Number(q.discountPct).toFixed(1)}%`);
+      lines.push(`Spot: $${Number(q.spot).toFixed(2)} | Discount: ${Number(q.discountPct).toFixed(2)}%`);
       lines.push("");
 
       let offerTotal = 0;
@@ -603,7 +603,7 @@ function hydrateUI(state){
 
   spotInput.value = String(state.spot ?? baselineSpot);
   discountSlider.value = String(state.discountPct ?? 35);
-  discountLabel.textContent = `${Number(state.discountPct ?? 35).toFixed(1)}%`;
+  discountLabel.textContent = `${Number(state.discountPct ?? 35).toFixed(2)}%`;
   noteInput.value = state.note || "";
 
   buildBucketsUI(state);
@@ -621,7 +621,7 @@ function hydrateUI(state){
   discountSlider.oninput = () => {
     const v = parseFloat(discountSlider.value);
     state.discountPct = Number.isFinite(v) ? v : 35;
-    discountLabel.textContent = `${Number(state.discountPct).toFixed(1)}%`;
+    discountLabel.textContent = `${Number(state.discountPct).toFixed(2)}%`;
     setState(state);
     recalc(state);
   };
