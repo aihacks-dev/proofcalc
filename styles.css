@@ -1,107 +1,333 @@
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0b0f14" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Proof Sets Buy" />
-  <meta name="format-detection" content="telephone=no" />
+:root{
+  --bg:#0b0f14;
+  --card:#111826;
+  --text:#e7eef8;
+  --muted:#9fb0c5;
+  --line:#1f2a3a;
+  --primary:#2b90ff;
+  --secondary:#1a2433;
+  --danger:#ff4d4d;
+  --warn:#ffcc66;
+}
 
-  <link rel="manifest" href="manifest.json">
-  <link rel="apple-touch-icon" href="icons/icon-192.png">
+*{ box-sizing:border-box; }
+html,body{ height:100%; }
 
-  <link rel="stylesheet" href="styles.css" />
-  <title>Proof Sets Buy Sheet</title>
-</head>
+body{
+  margin:0;
+  font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background:linear-gradient(180deg, var(--bg), #070a10);
+  color:var(--text);
+}
 
-<body>
-  <header class="topbar">
-    <div class="title-wrap">
-      <div class="title">Proof Sets Buy Sheet</div>
-      <div class="subtitle">Spot-based offer + melt calculator (offline PWA)</div>
-    </div>
-    <div class="version" id="versionLabel">v3</div>
-  </header>
+.topbar{
+  position:sticky;
+  top:0;
+  z-index:10;
+  padding:16px 16px calc(12px + env(safe-area-inset-top));
+  background:rgba(11,15,20,.85);
+  backdrop-filter: blur(10px);
+  border-bottom:1px solid var(--line);
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+}
 
-  <main class="container">
-    <section class="card">
-      <div class="row two">
-        <label class="field">
-          <span>Silver spot ($/oz)</span>
-          <input id="spotInput" type="number" inputmode="decimal" step="0.01" min="0" />
-        </label>
+.title{ font-size:18px; font-weight:800; letter-spacing:.2px; }
+.subtitle{ font-size:12px; color:var(--muted); margin-top:2px; }
 
-        <div class="field">
-          <span>Buy discount</span>
-          <div class="slider-row">
-            <input id="discountSlider" class="range" type="range" min="0" max="50" step="0.5" />
-            <div class="pill"><span id="discountLabel">35.0%</span></div>
-          </div>
-        </div>
-      </div>
+.version{
+  font-size:12px;
+  color:var(--muted);
+  border:1px solid var(--line);
+  padding:6px 10px;
+  border-radius:999px;
+  white-space:nowrap;
+}
 
-      <div class="row three">
-        <button id="resetBtn" class="btn secondary" type="button">Reset</button>
-        <button id="saveBtn" class="btn primary" type="button">Save Quote</button>
-        <button id="clearSavedBtn" class="btn danger" type="button">Clear Saved</button>
-      </div>
+.container{
+  padding:14px 12px calc(24px + env(safe-area-inset-bottom));
+  max-width:900px;
+  margin:0 auto;
+}
 
-      <div class="row">
-        <label class="field">
-          <span>Quote note (optional)</span>
-          <input id="noteInput" type="text" placeholder="Customer name, shop, quick note…" maxlength="80" />
-        </label>
-      </div>
-    </section>
+.card{
+  background:rgba(17,24,38,.92);
+  border:1px solid var(--line);
+  border-radius:16px;
+  padding:14px;
+  margin:12px 0;
+  box-shadow: 0 10px 25px rgba(0,0,0,.25);
+}
 
-    <section class="card">
-      <div class="card-title">Buy buckets</div>
-      <div id="buckets"></div>
+.card-title{
+  font-size:14px;
+  font-weight:800;
+  margin-bottom:10px;
+}
 
-      <div class="totals">
-        <div class="tot-row">
-          <div class="tot-label">Grand total offer</div>
-          <div class="tot-value" id="grandTotal">$0.00</div>
-        </div>
+.row{ display:flex; gap:10px; flex-wrap:wrap; }
+.row.two > *{ flex:1 1 240px; }
+.row.three > *{ flex:1 1 180px; }
 
-        <div class="tot-row">
-          <div class="tot-label">Grand total melt</div>
-          <div class="tot-value" id="grandMelt">$0.00</div>
-        </div>
+.field span{
+  display:block;
+  font-size:12px;
+  color:var(--muted);
+  margin-bottom:6px;
+}
 
-        <div class="behind-wrap">
-          <button id="grandBehindToggle" class="behind-toggle" type="button">Behind scenes ▸</button>
+input[type="number"], input[type="text"], select{
+  width:100%;
+  padding:12px 12px;
+  border-radius:12px;
+  border:1px solid var(--line);
+  background:#0c121c;
+  color:var(--text);
+  font-size:16px;
+  outline:none;
+}
 
-          <div id="grandBehindPanel" class="behind-panel hidden">
-            <div class="behind-grid">
-              <div class="kv">
-                <div class="k">Total expected sell</div>
-                <div class="v" id="grandExpectedSell">$0.00</div>
-              </div>
-              <div class="kv">
-                <div class="k">Total profit (sell − offer)</div>
-                <div class="v" id="grandProfit">$0.00</div>
-              </div>
-            </div>
-          </div>
-        </div>
+input[type="number"]:focus, input[type="text"]:focus, select:focus{
+  border-color:rgba(43,144,255,.6);
+  box-shadow:0 0 0 4px rgba(43,144,255,.15);
+}
 
-      </div>
-    </section>
+.slider-row{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
 
-    <section class="card">
-      <div class="card-title">Saved quotes</div>
-      <div id="savedList" class="saved-list"></div>
-      <div class="smallprint">Saved locally on this device (localStorage). No cloud sync.</div>
-    </section>
-  </main>
+.pill{
+  border:1px solid var(--line);
+  padding:8px 10px;
+  border-radius:999px;
+  font-size:13px;
+  color:var(--text);
+  background:#0c121c;
+  min-width:84px;
+  text-align:center;
+}
 
-  <footer class="footer">
-    <div>PM Services • Proof Sets</div>
-  </footer>
+/* Buttons */
+.btn{
+  border:none;
+  border-radius:12px;
+  padding:12px 12px;
+  font-weight:900;
+  cursor:pointer;
+  letter-spacing:.2px;
+}
+.btn.primary{ background:var(--primary); color:#06101d; }
+.btn.secondary{ background:var(--secondary); color:var(--text); border:1px solid var(--line); }
+.btn.danger{ background:var(--danger); color:#1b0000; }
+.btn:active{ transform: translateY(1px); }
 
-  <script src="app.js"></script>
-</body>
-</html>
+/* Buckets */
+.bucket{
+  border:1px solid var(--line);
+  background:#0c121c;
+  border-radius:14px;
+  padding:12px;
+  margin:10px 0;
+}
+
+.bucket-top{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  align-items:flex-start;
+}
+
+.bucket-name{
+  font-weight:900;
+  font-size:14px;
+}
+
+.bucket-right{
+  text-align:right;
+  min-width:180px;
+}
+
+.price-line{
+  font-size:12px;
+  color:var(--muted);
+}
+
+.price-big{
+  font-size:18px;
+  font-weight:950;
+  margin-top:2px;
+}
+
+/* Melt */
+.melt-line{
+  margin-top:8px;
+  padding-top:8px;
+  border-top:1px dashed rgba(159,176,197,.25);
+}
+
+.melt-value{
+  font-size:16px;
+  font-weight:950;
+}
+
+.badge{
+  display:inline-block;
+  margin-top:6px;
+  font-size:11px;
+  color:var(--muted);
+  border:1px solid rgba(159,176,197,.25);
+  padding:4px 8px;
+  border-radius:999px;
+}
+.badge.warn{
+  color:var(--warn);
+  border-color: rgba(255,204,102,.35);
+}
+
+.bucket-controls{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  margin-top:10px;
+  flex-wrap:wrap;
+}
+
+.qty{ width:120px; }
+.subtotal{ margin-left:auto; font-weight:900; }
+
+/* Totals */
+.totals{
+  border-top:1px solid var(--line);
+  margin-top:12px;
+  padding-top:12px;
+}
+
+.tot-row{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:12px;
+  margin:6px 0;
+}
+
+.tot-label{ color:var(--muted); }
+.tot-value{ font-weight:950; font-size:20px; }
+
+/* Behind the scenes */
+.behind-wrap{ margin-top:10px; }
+
+.behind-toggle{
+  border:1px solid var(--line);
+  background:#0b1018;
+  color:var(--muted);
+  border-radius:12px;
+  padding:8px 10px;
+  cursor:pointer;
+  font-size:12px;
+}
+.behind-toggle.on{
+  color:var(--text);
+  border-color: rgba(43,144,255,.45);
+}
+
+.behind-panel{
+  margin-top:10px;
+  border:1px dashed rgba(159,176,197,.35);
+  background:rgba(8,12,18,.7);
+  border-radius:14px;
+  padding:12px;
+}
+
+.hidden{ display:none; }
+
+.behind-grid{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.behind-grid .field{ flex: 1 1 220px; }
+
+.kv{
+  flex:1 1 220px;
+  border:1px solid var(--line);
+  background:#0c121c;
+  border-radius:12px;
+  padding:10px;
+}
+
+.kv .k{ font-size:12px; color:var(--muted); }
+.kv .v{ margin-top:4px; font-size:16px; font-weight:950; }
+
+/* Saved */
+.saved-list{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+.saved{
+  border:1px solid var(--line);
+  border-radius:14px;
+  padding:12px;
+  background:#0c121c;
+}
+
+.saved-head{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  align-items:flex-start;
+}
+
+.saved-title{ font-weight:900; font-size:14px; }
+.saved-sub{ font-size:12px; color:var(--muted); margin-top:4px; }
+
+.saved-actions{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+
+.iconbtn{
+  border:1px solid var(--line);
+  background:#0b1018;
+  color:var(--text);
+  border-radius:12px;
+  padding:8px 10px;
+  cursor:pointer;
+  font-size:12px;
+}
+
+.smallprint{ margin-top:8px; font-size:11px; color:var(--muted); }
+.footer{ padding:18px 14px; text-align:center; color:var(--muted); font-size:12px; }
+
+/* iOS range slider */
+.range{
+  width:100%;
+  height:36px;
+  background:transparent;
+  -webkit-appearance:none;
+  appearance:none;
+}
+.range:focus{ outline:none; }
+
+.range::-webkit-slider-runnable-track{
+  height:8px;
+  border-radius:999px;
+  background:#1b2535;
+  border:1px solid var(--line);
+}
+.range::-webkit-slider-thumb{
+  -webkit-appearance:none;
+  appearance:none;
+  width:26px;
+  height:26px;
+  border-radius:50%;
+  margin-top:-10px;
+  background:#e7eef8;
+  border:2px solid rgba(43,144,255,.65);
+}
