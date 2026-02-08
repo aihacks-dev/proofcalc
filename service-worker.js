@@ -1,4 +1,5 @@
-const CACHE_NAME = "proof-sets-buy-v0.1.0";
+const CACHE_NAME = "proof-sets-buy-v3";
+
 const ASSETS = [
   "./",
   "./index.html",
@@ -10,24 +11,53 @@ const ASSETS = [
 ];
 
 self.addEventListener("install", (event) => {
+
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(ASSETS))
+      .then(() => self.skipWaiting())
   );
+
 });
 
 self.addEventListener("activate", (event) => {
+
   event.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.map(k => (k !== CACHE_NAME) ? caches.delete(k) : null)))
-      .then(() => self.clients.claim())
+    caches.keys().then((keys) =>
+      Promise.all(
+        keys.map((k) => {
+          if (k !== CACHE_NAME) {
+            return caches.delete(k);
+          }
+        })
+      )
+    ).then(() => self.clients.claim())
   );
+
 });
 
 self.addEventListener("fetch", (event) => {
+
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request).then((resp) => {
-      const copy = resp.clone();
-      caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy)).catch(()=>{});
-      return resp;
-    }).catch(() => cached))
+
+    caches.match(event.request).then((cached) => {
+
+      if (cached) return cached;
+
+      return fetch(event.request).then((response) => {
+
+        const copy = response.clone();
+
+        caches.open(CACHE_NAME).then((cache) => {
+          cache.put(event.request, copy);
+        });
+
+        return response;
+
+      });
+
+    })
+
   );
+
 });
