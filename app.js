@@ -1,14 +1,19 @@
 /* Proof Sets Buy Sheet PWA - v3 (major only)
-   Adds:
-   - Melt each + melt subtotal per bucket
-   - Grand total melt
-   - Per-bucket "Silver oz per set" input (in Behind scenes) so you can enter content
-   - Silver oz values persist + are saved/loaded with quotes
+   - Offer pricing uses your baseline sheet (spot 78, baseline discount 35%)
+   - Melt value shown clearly for each bucket (each + subtotal) using silver ozt per set
+   - Behind-the-scenes resale check per bucket + grand totals (hidden by default)
+   - Save quotes (localStorage) + load/copy/delete
+
+   Silver content assumptions (per your instructions):
+   - Treat 90% as "junk equivalent" (we converted coin mixes to ozt using the standard junk assumptions)
+   - 40% Kennedy half: 0.1479 ozt
+   - 40% Ike dollar: 0.3161 ozt
+   - 1976 3-coin silver set: Ike 0.3161 + Half 0.1479 + Quarter 0.0739 = 0.5379 ozt
 */
 
 const APP_VERSION = "3";
 
-// Baseline assumptions (internal only)
+// Baseline assumptions (internal only; not displayed)
 const baselineSpot = 78;
 const baselineDiscount = 0.35;
 
@@ -23,21 +28,21 @@ const premiumMin = -10;
 const premiumMax = 30;
 const premiumStep = 0.5;
 
-// IMPORTANT: silverOzPerSet defaults are UNKNOWN until you fill them.
-// Once you give me the oz, I can hardcode them here.
+// Buckets + buy prices at baseline spot 78 and baseline discount 35%.
+// silverOzPerSet is now fully populated.
 const BUCKETS = [
-  { id: "ps_1950_1964", label: "1950–1964 proof sets", buyAtBaseline: 31.00, silverOzPerSet: null },
-  { id: "ms_1956_1964", label: "1956–1964 mint sets",  buyAtBaseline: 62.00, silverOzPerSet: null },
-  { id: "sets_1965_1970", label: "1965–1970 sets",      buyAtBaseline: 6.00,  silverOzPerSet: null },
-  { id: "ike_1971_1974", label: "1971–1974 Ike sets",   buyAtBaseline: 12.00, silverOzPerSet: null },
-  { id: "set_1976",      label: "1976 proof/mint set",  buyAtBaseline: 24.00, silverOzPerSet: null },
-  { id: "ps_1992_1998",  label: "1992–1998 proof sets", buyAtBaseline: 28.00, silverOzPerSet: null },
-  { id: "ps_1999_2008",  label: "1999–2008 proof sets", buyAtBaseline: 65.00, silverOzPerSet: null },
-  { id: "ps_2009",       label: "2009 proof set",       buyAtBaseline: 76.00, silverOzPerSet: null },
-  { id: "ps_2010_2020",  label: "2010–2020 proof sets", buyAtBaseline: 68.00, silverOzPerSet: null }
+  { id: "ps_1950_1964", label: "1950–1964 proof sets", buyAtBaseline: 31.00, silverOzPerSet: 0.6078 },
+  { id: "ms_1956_1964", label: "1956–1964 mint sets",  buyAtBaseline: 62.00, silverOzPerSet: 1.2155 },
+  { id: "sets_1965_1970", label: "1965–1970 sets",     buyAtBaseline: 6.00,  silverOzPerSet: 0.1479 }, // 1x 40% half
+  { id: "ike_1971_1974", label: "1971–1974 Ike sets",  buyAtBaseline: 12.00, silverOzPerSet: 0.3161 }, // 1x 40% Ike dollar
+  { id: "set_1976",      label: "1976 3-coin silver proof set", buyAtBaseline: 24.00, silverOzPerSet: 0.5379 },
+  { id: "ps_1992_1998",  label: "1992–1998 proof sets", buyAtBaseline: 28.00, silverOzPerSet: 0.6078 },
+  { id: "ps_1999_2008",  label: "1999–2008 proof sets", buyAtBaseline: 65.00, silverOzPerSet: 1.3228 },
+  { id: "ps_2009",       label: "2009 proof set",       buyAtBaseline: 76.00, silverOzPerSet: 1.5015 },
+  { id: "ps_2010_2020",  label: "2010–2020 proof sets", buyAtBaseline: 68.00, silverOzPerSet: 1.3228 }
 ];
 
-const KEY_STATE = "proofSetsBuySheet_state_v3_melt";
+const KEY_STATE = "proofSetsBuySheet_state_v3_melt_final";
 const KEY_SAVED = "proofSetsBuySheet_savedQuotes_v1";
 
 function money(n){
@@ -69,7 +74,7 @@ function getState(){
   BUCKETS.forEach(b => {
     qty[b.id] = 0;
     resale[b.id] = { show:false, buyerId:"lcs", premiumPct: 10 };
-    silverOz[b.id] = b.silverOzPerSet; // null until you fill it
+    silverOz[b.id] = b.silverOzPerSet; // prefilled defaults
   });
 
   return {
@@ -134,7 +139,7 @@ function buildBucketsUI(state){
     const right = document.createElement("div");
     right.className = "bucket-right";
 
-    // Offer display
+    // Offer
     const pline = document.createElement("div");
     pline.className = "price-line";
     pline.textContent = "Offer each";
@@ -142,8 +147,9 @@ function buildBucketsUI(state){
     const pbig = document.createElement("div");
     pbig.className = "price-big";
     pbig.id = `offer_${bucket.id}`;
+    pbig.textContent = money(offerEach(bucket, state.spot, state.discountPct));
 
-    // Melt display
+    // Melt
     const mwrap = document.createElement("div");
     mwrap.className = "melt-line";
 
@@ -157,9 +163,8 @@ function buildBucketsUI(state){
     mval.textContent = "—";
 
     const mbadge = document.createElement("div");
-    mbadge.className = "badge warn";
+    mbadge.className = "badge";
     mbadge.id = `meltBadge_${bucket.id}`;
-    mbadge.textContent = "Melt: N/A (set oz)";
 
     mwrap.appendChild(mline);
     mwrap.appendChild(mval);
@@ -215,7 +220,7 @@ function buildBucketsUI(state){
     const grid = document.createElement("div");
     grid.className = "behind-grid";
 
-    // NEW: Silver oz per set input
+    // Silver oz per set (still editable, but prefilled)
     const ozField = document.createElement("label");
     ozField.className = "field";
     const ozSpan = document.createElement("span");
@@ -238,7 +243,7 @@ function buildBucketsUI(state){
     ozField.appendChild(ozSpan);
     ozField.appendChild(ozInput);
 
-    // Buyer + premium
+    // Buyer dropdown
     const buyerField = document.createElement("label");
     buyerField.className = "field";
     const buyerSpan = document.createElement("span");
@@ -254,6 +259,7 @@ function buildBucketsUI(state){
     buyerField.appendChild(buyerSpan);
     buyerField.appendChild(buyerSelect);
 
+    // Premium slider
     const premField = document.createElement("label");
     premField.className = "field";
     const premSpan = document.createElement("span");
@@ -298,7 +304,6 @@ function buildBucketsUI(state){
     kvProfitSub.className = "kv";
     kvProfitSub.innerHTML = `<div class="k">Profit subtotal (qty)</div><div class="v" id="profitSub_${bucket.id}">$0.00</div>`;
 
-    // NEW: Melt subtotal KPI
     const kvMeltSub = document.createElement("div");
     kvMeltSub.className = "kv";
     kvMeltSub.innerHTML = `<div class="k">Melt subtotal (qty)</div><div class="v" id="meltSub_${bucket.id}">$0.00</div>`;
@@ -403,6 +408,7 @@ function recalc(state){
       if(meltEl) meltEl.textContent = "—";
       if(badgeEl){
         badgeEl.style.display = "inline-block";
+        badgeEl.classList.add("warn");
         badgeEl.textContent = "Melt: N/A (set oz)";
       }
       if(meltSubEl) meltSubEl.textContent = money(0);
@@ -445,7 +451,10 @@ function recalc(state){
   });
 
   document.getElementById("grandTotal").textContent = money(offerTotal);
-  document.getElementById("grandMelt").textContent = money(meltTotal);
+
+  const grandMelt = document.getElementById("grandMelt");
+  if(grandMelt) grandMelt.textContent = money(meltTotal);
+
   document.getElementById("grandExpectedSell").textContent = money(expectedSellTotal);
   document.getElementById("grandProfit").textContent = money(profitTotal);
 }
@@ -529,7 +538,7 @@ function renderSaved(){
           const subMelt = (eachMelt !== null) ? (eachMelt * qty) : 0;
           meltTotal += subMelt;
 
-          const meltStr = (eachMelt !== null) ? `${money(eachMelt)} (melt)` : "— (melt N/A)";
+          const meltStr = (eachMelt !== null) ? `${money(eachMelt)} melt` : `melt N/A`;
           lines.push(`${b.label}: qty ${qty} × ${money(eachOffer)} = ${money(subOffer)} | ${meltStr}`);
         }
       });
@@ -642,13 +651,13 @@ function hydrateUI(state){
     fresh.note = "";
     Object.keys(fresh.qty).forEach(k => fresh.qty[k] = 0);
 
-    // keep your silver oz values (optional)
-    // If you want reset to blank, uncomment next line:
-    // Object.keys(fresh.silverOz).forEach(k => fresh.silverOz[k] = null);
-
+    // Reset resale view states
     BUCKETS.forEach(b => {
       fresh.resale[b.id] = { show:false, buyerId:"lcs", premiumPct: buyerDefaultPremium("lcs") };
+      // Keep silverOz defaults from BUCKETS
+      fresh.silverOz[b.id] = b.silverOzPerSet;
     });
+
     fresh.grandResaleShow = false;
 
     setState(fresh);
