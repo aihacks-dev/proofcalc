@@ -18,15 +18,15 @@ const baselineSpot = 78;
 const baselineDiscount = 0.35;
 
 const BUYERS = [
-  { id: "lcs",       label: "LCS",        defaultPremiumPct: 10 },
-  { id: "wholesale", label: "Wholesaler", defaultPremiumPct: 6  },
-  { id: "refiner",   label: "Refiner",    defaultPremiumPct: 3  },
-  { id: "ebay",      label: "eBay",       defaultPremiumPct: 18 }
+  { id: "lcs",       label: "LCS",        defaultPremiumPct: 20  },
+  { id: "wholesale", label: "Wholesaler", defaultPremiumPct: 25  },
+  { id: "refiner",   label: "Refiner",    defaultPremiumPct: 10  },
+  { id: "ebay",      label: "eBay",       defaultPremiumPct: 18  }
 ];
 
 const premiumMin = -10;
-const premiumMax = 30;
-const premiumStep = 0.5;
+const premiumMax = 100;
+const premiumStep = 0.25;
 
 // Buckets + buy prices at baseline spot 78 and baseline discount 35%.
 const BUCKETS = [
@@ -96,7 +96,7 @@ function fullValueAtBaseline(buyAtBaseline){
 }
 
 function offerEach(bucket, spot, discountPct){
-  const d = clamp(discountPct, 0, 50) / 100;
+  const d = clamp(discountPct, 0, 75) / 100;
   const fv = fullValueAtBaseline(bucket.buyAtBaseline);
   return fv * (spot / baselineSpot) * (1 - d);
 }
