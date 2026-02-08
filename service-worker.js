@@ -1,4 +1,4 @@
-const CACHE_NAME = "proof-sets-buy-v3";
+const CACHE_NAME = "proof-sets-buy-v4";
 
 const ASSETS = [
   "./",
